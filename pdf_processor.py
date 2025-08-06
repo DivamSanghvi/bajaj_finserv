@@ -278,27 +278,27 @@ class PDFProcessor:
             
             # Create BM25 retriever from filtered documents
             bm25_retriever = BM25Retriever.from_documents(filtered_docs)
-            bm25_retriever.k = 4  # Increased for better accuracy
+            bm25_retriever.k = 6  # Increased for better accuracy
             
             # Create FAISS retriever - if filtering is applied, create from filtered docs only
             if target_resource_ids and len(target_resource_ids) > 0:
                 # When filtering by specific resources, create FAISS from filtered documents only
                 if len(filtered_docs) > 0:
                     filtered_faiss_store = FAISS.from_documents(filtered_docs, self.embeddings)
-                    faiss_retriever = filtered_faiss_store.as_retriever(search_kwargs={"k": 4})
+                    faiss_retriever = filtered_faiss_store.as_retriever(search_kwargs={"k": 6})
                     print(f"🎯 Created FAISS retriever from {len(filtered_docs)} filtered documents")
                 else:
                     # Fallback to empty results if no filtered docs
                     return []
             else:
                 # When no filtering, use the full vector store
-                faiss_retriever = store.as_retriever(search_kwargs={"k": 4})
+                faiss_retriever = store.as_retriever(search_kwargs={"k": 6})
                 print(f"📋 Using full FAISS retriever with all documents")
             
             # Create ensemble retriever optimized for accuracy
             ensemble_retriever = EnsembleRetriever(
                 retrievers=[bm25_retriever, faiss_retriever],
-                weights=[0.3, 0.7]  # More weight to FAISS for better semantic understanding
+                weights=[0.2, 0.8]  # More weight to FAISS for better semantic understanding
             )
             
             # Get relevant documents

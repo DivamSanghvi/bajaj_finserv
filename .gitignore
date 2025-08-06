@@ -3,6 +3,7 @@ venv/
 env/
 ENV/
 
+/logs
 # Environment Variables
 .env
 .env.local
