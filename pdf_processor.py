@@ -8,7 +8,10 @@ from pdf2image import convert_from_path
 from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
-from langchain_community.embeddings import SentenceTransformerEmbeddings
+try:
+    from langchain_huggingface import HuggingFaceEmbeddings
+except ImportError:
+    from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
@@ -21,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 class PDFProcessor:
     def __init__(self):
-        self.embeddings = SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
+        self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         self.vector_store_dir = "vector_stores"
         os.makedirs(self.vector_store_dir, exist_ok=True)
         self.vector_stores = {}

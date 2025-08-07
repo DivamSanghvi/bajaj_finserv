@@ -11,13 +11,24 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 import numpy as np
 import faiss
-from pdf_processor import pdf_processor
+# PDF processor will be imported lazily to reduce startup memory
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from openai import OpenAI
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Global variable for lazy PDF processor initialization
+_pdf_processor = None
+
+def get_pdf_processor():
+    """Lazy initialization of PDF processor to reduce startup memory usage."""
+    global _pdf_processor
+    if _pdf_processor is None:
+        from pdf_processor import pdf_processor
+        _pdf_processor = pdf_processor
+    return _pdf_processor
 
 # Enhanced Prompt Templates for RAG System
 QUERY_STRUCTURING_PROMPT = """
@@ -743,11 +754,11 @@ async def upload_and_process_pdf(
     with open(file_path, "wb") as f:
         f.write(await file.read())
     # Process PDF
-    docs = pdf_processor.process_pdf(file_path, resource_id, project_id, file.filename)
+    docs = get_pdf_processor().process_pdf(file_path, resource_id, project_id, file.filename)
     if not docs:
         return JSONResponse(status_code=400, content={"error": "Failed to process PDF or extract text."})
     # Save to vector store
-    pdf_processor.save_or_update_vector_store(docs, project_id)
+    get_pdf_processor().save_or_update_vector_store(docs, project_id)
     return {"message": f"Processed and indexed {file.filename}", "num_chunks": len(docs)}
 
 @app.post("/pdf/search")
@@ -757,7 +768,7 @@ async def search_pdf(
     resource_ids: str = Form(None)  # comma-separated
 ):
     resource_id_list = resource_ids.split(",") if resource_ids else None
-    results = pdf_processor.get_relevant_documents(query, project_id, resource_id_list)
+    results = get_pdf_processor().get_relevant_documents(query, project_id, resource_id_list)
     return {"results": [
         {
             "content": doc.page_content,
@@ -793,13 +804,13 @@ async def hackrx_run(request: HackRxRequest, token: str = Depends(verify_token))
         # Process PDF
         resource_id = "hackrx_doc"
         project_id = "hackrx_project"
-        docs = pdf_processor.process_pdf(pdf_path, resource_id, project_id, "hackrx_document.pdf")
+        docs = get_pdf_processor().process_pdf(pdf_path, resource_id, project_id, "hackrx_document.pdf")
 
         if not docs:
             raise HTTPException(status_code=400, detail="Failed to process PDF or extract text")
 
         # Save to vector store
-        pdf_processor.save_or_update_vector_store(docs, project_id)
+        get_pdf_processor().save_or_update_vector_store(docs, project_id)
         
         # Generate answers for each question using LLM (optimized for accuracy)
         answers = []
@@ -807,7 +818,7 @@ async def hackrx_run(request: HackRxRequest, token: str = Depends(verify_token))
             logger.info(f"🔍 Processing question {i+1}/{len(request.questions)}: {question}")
             
             # Search for relevant documents
-            results = pdf_processor.get_relevant_documents(question, project_id)
+            results = get_pdf_processor().get_relevant_documents(question, project_id)
             if results:
                 # Use top 8 chunks for better accuracy and comprehensive coverage
                 context = "\n\n".join([doc.page_content for doc in results[:8]])
@@ -862,13 +873,13 @@ async def hackrx_detailed_analysis(request: DetailedAnalysisRequest, token: str 
         # Process PDF
         resource_id = "hackrx_doc"
         project_id = "hackrx_project"
-        docs = pdf_processor.process_pdf(pdf_path, resource_id, project_id, "hackrx_document.pdf")
+        docs = get_pdf_processor().process_pdf(pdf_path, resource_id, project_id, "hackrx_document.pdf")
 
         if not docs:
             raise HTTPException(status_code=400, detail="Failed to process PDF or extract text")
 
         # Save to vector store
-        pdf_processor.save_or_update_vector_store(docs, project_id)
+        get_pdf_processor().save_or_update_vector_store(docs, project_id)
 
         # Generate detailed analysis for each question
         analyses = []
@@ -876,7 +887,7 @@ async def hackrx_detailed_analysis(request: DetailedAnalysisRequest, token: str 
             logger.info(f"🔍 Processing detailed analysis for question {i+1}/{len(request.questions)}: {question}")
             
             # Search for relevant documents
-            results = pdf_processor.get_relevant_documents(question, project_id)
+            results = get_pdf_processor().get_relevant_documents(question, project_id)
             
             if results:
                 # Use top 8 chunks for better accuracy and comprehensive coverage
