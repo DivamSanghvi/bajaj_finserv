@@ -16,11 +16,38 @@ from langchain_community.vectorstores import FAISS
 from langchain.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
 import logging
+import gc  # For garbage collection
+import signal  # For timeouts
+from functools import wraps
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 
 logger = logging.getLogger(__name__)
+
+def timeout_handler(signum, frame):
+    raise TimeoutError("Operation timed out")
+
+def with_timeout(timeout_seconds):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # Set up the timeout
+            old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(timeout_seconds)
+            try:
+                result = func(*args, **kwargs)
+                return result
+            except TimeoutError:
+                logger.error(f"Function {func.__name__} timed out after {timeout_seconds} seconds")
+                return None
+            finally:
+                # Clean up
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
+                gc.collect()  # Force garbage collection
+        return wrapper
+    return decorator
 
 class PDFProcessor:
     def __init__(self):
@@ -31,11 +58,14 @@ class PDFProcessor:
         self.allow_dangerous_deserialization = True
         logger.info("PDFProcessor initialized with vector store directory: %s", self.vector_store_dir)
 
+    @with_timeout(30)  # 30 second timeout
     def extract_text_pymupdf(self, pdf_path, pages=None):
         try:
             document = fitz.open(pdf_path)
             text = ""
-            max_pages = pages if pages else len(document)
+            max_pages = pages if pages else min(len(document), 50)  # Limit to 50 pages max
+            logger.info(f"Processing {max_pages} pages from PDF")
+            
             for page_num in range(min(max_pages, len(document))):
                 page = document.load_page(page_num)
                 page_text = page.get_text("text")
@@ -43,7 +73,16 @@ class PDFProcessor:
                     text += page_text + "\n"
                 else:
                     logger.warning(f"Page {page_num} returned non-string text: {type(page_text)}")
+                
+                # Clean up page object to free memory
+                page = None
+                
+                # Log progress every 10 pages
+                if (page_num + 1) % 10 == 0:
+                    logger.info(f"Processed {page_num + 1}/{max_pages} pages")
+                    
             document.close()
+            logger.info(f"Extracted {len(text)} characters from PDF")
             return text
         except Exception as e:
             logger.error(f"Error during PyMuPDF extraction: {e}")
@@ -107,22 +146,35 @@ class PDFProcessor:
             logger.error(f"Error processing PDF {pdf_path}: {str(e)}")
             return []
 
+    @with_timeout(20)  # 20 second timeout
     def chunk_text(self, text):
         try:
             if not isinstance(text, str):
                 logger.error(f"Expected string for chunking, got {type(text)}")
                 return []
+            
+            # Limit text size to prevent memory issues
+            max_text_size = 400000  # 400KB of text max for memory efficiency
+            if len(text) > max_text_size:
+                logger.warning(f"Text too large ({len(text)} chars), truncating to {max_text_size}")
+                text = text[:max_text_size]
                 
             # Optimized text splitter for better retrieval
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=800,  # Better chunks for accuracy
-                chunk_overlap=100,  # More overlap for better context
+                chunk_size=600,  # Smaller chunks for memory efficiency
+                chunk_overlap=80,  # Reduced overlap
                 length_function=len,
                 separators=["\n\n", "\n", ". ", "! ", "? ", ", ", " ", ""],
                 is_separator_regex=False,
                 keep_separator=True
             )
             chunks = text_splitter.split_text(text)
+            
+            # Limit number of chunks to prevent memory issues
+            max_chunks = 80
+            if len(chunks) > max_chunks:
+                logger.warning(f"Too many chunks ({len(chunks)}), limiting to {max_chunks}")
+                chunks = chunks[:max_chunks]
             
             # Post-process chunks to fix word boundaries
             processed_chunks = []
