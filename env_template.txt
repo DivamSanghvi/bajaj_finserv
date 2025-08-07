@@ -1,0 +1,15 @@
+# Environment Variables Template for Deployment
+
+# FastAPI settings
+APP_HOST=0.0.0.0
+APP_PORT=8000
+
+# Database settings (Update with your deployment database)
+POSTGRES_HOST=your-db-host
+POSTGRES_PORT=5432
+POSTGRES_DB=your-db-name
+POSTGRES_USER=your-db-user
+POSTGRES_PASSWORD=your-db-password
+
+# OpenAI API Key (REQUIRED - Add your real key)
+OPENAI_API_KEY=sk-your-actual-openai-api-key-here
