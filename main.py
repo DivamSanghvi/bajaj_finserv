@@ -778,6 +778,9 @@ async def search_pdf(
 
 @app.post("/hackrx/run", response_model=HackRxResponse)
 async def hackrx_run(request: HackRxRequest, token: str = Depends(verify_token)):
+    import time
+    start_time = time.time()
+    
     try:
         # Log the request body for debugging
         logger.info("=" * 50)
@@ -788,33 +791,48 @@ async def hackrx_run(request: HackRxRequest, token: str = Depends(verify_token))
             logger.info(f"   {i}. {question}")
         logger.info("=" * 50)
         
-        # Download PDF from URL
+        # STEP 1: Download PDF from URL
+        step_start = time.time()
+        logger.info("🔽 STEP 1: Starting PDF download...")
         response = requests.get(request.documents, timeout=30)
         if response.status_code != 200:
             raise HTTPException(status_code=400, detail="Failed to download PDF from URL")
+        logger.info(f"✅ STEP 1 COMPLETED: PDF downloaded ({len(response.content)} bytes) in {time.time() - step_start:.2f}s")
 
-        # Save PDF temporarily
+        # STEP 2: Save PDF temporarily
+        step_start = time.time()
+        logger.info("💾 STEP 2: Saving PDF temporarily...")
         temp_dir = "temp_pdfs"
         os.makedirs(temp_dir, exist_ok=True)
         pdf_path = os.path.join(temp_dir, "temp_document.pdf")
 
         with open(pdf_path, "wb") as f:
             f.write(response.content)
+        logger.info(f"✅ STEP 2 COMPLETED: PDF saved to {pdf_path} in {time.time() - step_start:.2f}s")
 
-        # Process PDF
+        # STEP 3: Process PDF (extract text and chunk)
+        step_start = time.time()
+        logger.info("📄 STEP 3: Starting PDF processing (text extraction + chunking)...")
         resource_id = "hackrx_doc"
         project_id = "hackrx_project"
         docs = get_pdf_processor().process_pdf(pdf_path, resource_id, project_id, "hackrx_document.pdf")
 
         if not docs:
             raise HTTPException(status_code=400, detail="Failed to process PDF or extract text")
+        logger.info(f"✅ STEP 3 COMPLETED: PDF processed, created {len(docs)} document chunks in {time.time() - step_start:.2f}s")
 
-        # Save to vector store
+        # STEP 4: Save to vector store (embeddings + FAISS)
+        step_start = time.time()
+        logger.info("🧠 STEP 4: Starting vector store creation (embeddings + FAISS indexing)...")
         get_pdf_processor().save_or_update_vector_store(docs, project_id)
+        logger.info(f"✅ STEP 4 COMPLETED: Vector store created and saved in {time.time() - step_start:.2f}s")
         
-        # Generate answers for each question using LLM (optimized for accuracy)
+        # STEP 5: Generate answers for each question using LLM
+        step_start = time.time()
+        logger.info("🤖 STEP 5: Starting LLM answer generation...")
         answers = []
         for i, question in enumerate(request.questions):
+            q_start = time.time()
             logger.info(f"🔍 Processing question {i+1}/{len(request.questions)}: {question}")
             
             # Search for relevant documents
@@ -823,25 +841,38 @@ async def hackrx_run(request: HackRxRequest, token: str = Depends(verify_token))
                 # Use top 8 chunks for better accuracy and comprehensive coverage
                 context = "\n\n".join([doc.page_content for doc in results[:8]])
                 answer = generate_llm_answer(question, context)
-                logger.info(f"✅ Answer {i+1}: {answer}")
+                logger.info(f"✅ Answer {i+1} generated in {time.time() - q_start:.2f}s: {answer}")
             else:
                 answer = "Information not found in the provided document."
-                logger.info(f"❌ Answer {i+1}: {answer}")
+                logger.info(f"❌ Answer {i+1} (no context) in {time.time() - q_start:.2f}s: {answer}")
             answers.append(answer)
+        logger.info(f"✅ STEP 5 COMPLETED: All {len(answers)} answers generated in {time.time() - step_start:.2f}s")
 
-        # Clean up temporary file
+        # STEP 6: Clean up
+        step_start = time.time()
+        logger.info("🧹 STEP 6: Cleaning up temporary files...")
         if os.path.exists(pdf_path):
             os.remove(pdf_path)
+        logger.info(f"✅ STEP 6 COMPLETED: Cleanup finished in {time.time() - step_start:.2f}s")
 
+        total_time = time.time() - start_time
         logger.info("=" * 50)
         logger.info("📤 SENDING RESPONSE:")
         logger.info(f"📝 Generated {len(answers)} answers")
+        logger.info(f"⏱️ TOTAL PROCESSING TIME: {total_time:.2f} seconds")
         logger.info("=" * 50)
 
         return HackRxResponse(answers=answers)
 
     except Exception as e:
-        logger.error(f"❌ ERROR: {str(e)}")
+        total_time = time.time() - start_time
+        logger.error(f"❌ ERROR after {total_time:.2f}s: {str(e)}")
+        logger.error(f"❌ ERROR TYPE: {type(e).__name__}")
+        
+        # Log which step failed
+        import traceback
+        logger.error(f"❌ FULL TRACEBACK:\n{traceback.format_exc()}")
+        
         raise HTTPException(status_code=500, detail=f"Error processing request: {str(e)}")
 
 @app.post("/hackrx/analyze", response_model=DetailedAnalysisResponse)

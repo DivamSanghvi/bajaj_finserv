@@ -252,32 +252,46 @@ class PDFProcessor:
         return os.path.join(self.vector_store_dir, f"project_{project_id}")
 
     def save_or_update_vector_store(self, documents, project_id):
+        import time
         try:
             if not documents:
                 logger.warning(f"No documents to save for project {project_id}")
                 return False
 
+            step_start = time.time()
+            logger.info(f"🧠 Starting vector store operations for {len(documents)} documents...")
+
             # Create project directory if it doesn't exist
             project_dir = self.get_vector_store_path(project_id)
             os.makedirs(project_dir, exist_ok=True)
-            logger.info(f"Created/verified project directory: {project_dir}")
+            logger.info(f"📁 Created/verified project directory: {project_dir}")
 
             # Check if vector store exists
             if project_id in self.vector_stores:
                 # Update existing vector store
+                logger.info("📈 Updating existing vector store...")
+                update_start = time.time()
                 self.vector_stores[project_id].add_documents(documents)
-                logger.info(f"Updated existing vector store for project {project_id}")
+                logger.info(f"✅ Updated existing vector store in {time.time() - update_start:.2f}s")
             else:
-                # Create new vector store
+                # Create new vector store - THIS IS THE MOST EXPENSIVE OPERATION
+                logger.info("🆕 Creating new vector store (generating embeddings)...")
+                create_start = time.time()
                 self.vector_stores[project_id] = FAISS.from_documents(documents, self.embeddings)
-                logger.info(f"Created new vector store for project {project_id}")
+                logger.info(f"✅ Created new vector store in {time.time() - create_start:.2f}s")
             
             # Save to disk
+            save_start = time.time()
+            logger.info("💾 Saving vector store to disk...")
             self.vector_stores[project_id].save_local(project_dir)
-            logger.info(f"Successfully saved vector store for project {project_id}")
+            logger.info(f"✅ Saved vector store to disk in {time.time() - save_start:.2f}s")
+            
+            total_time = time.time() - step_start
+            logger.info(f"🎉 Vector store operations completed in {total_time:.2f}s total")
             return True
         except Exception as e:
-            logger.error(f"Error saving vector store: {str(e)}")
+            total_time = time.time() - step_start
+            logger.error(f"❌ Error saving vector store after {total_time:.2f}s: {str(e)}")
             return False
 
     def load_and_retrieve_filtered_documents(self, query, project_id, target_resource_ids=None):
