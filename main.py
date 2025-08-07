@@ -944,4 +944,10 @@ async def hackrx_detailed_analysis(request: DetailedAnalysisRequest, token: str 
 
     except Exception as e:
         logger.error(f"❌ ERROR in detailed analysis: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing request: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Error processing request: {str(e)}")
+
+# Add startup configuration for deployment
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port) 
